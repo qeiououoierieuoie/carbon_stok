@@ -148,7 +148,7 @@ def map_dashboard():
             .legend-bar {{ width: 14px; height: 80px; border-radius: 4px; background: linear-gradient(180deg, #fde725, #5ec962, #21918c, #3b528b, #440154); }}
 
             /* ==============================================================================
-               KHUSUS MOBILE ONLY (Layar di bawah 768px): BERUBAH JADI BOTTOM SHEET MELAYANG
+               KHUSUS MOBILE ONLY: POSISI FLOATING BOTTOM SHEET NAIK LEBIH KEATAS AGAR AMAN
                ============================================================================== */
             @media screen and (max-width: 768px) {{
                 /* Peta dipaksa fullscreen di belakang layar HP */
@@ -159,23 +159,23 @@ def map_dashboard():
                     z-index: 1 !important;
                 }}
                 
-                /* Sidebar berubah total menjadi floating panel melayang di bawah */
+                /* POSISI BARU: Sengaja dinaikkan bottom-nya agar muat utuh di layar HP */
                 .sidebar {{
                     position: absolute !important;
-                    bottom: 12px !important;
+                    bottom: 30px !important; /* Diubah dari 12px ke 80px agar terangkat ke atas */
                     left: 12px !important;
                     right: 12px !important;
                     top: auto !important;
                     width: calc(100% - 24px) !important;
                     height: auto !important;
-                    max-height: 48vh !important;
+                    max-height: 60vh !important; /* Ditambah tinggi maksimalnya agar lebih leluasa */
                     background: rgba(255, 255, 255, 0.96) !important;
                     backdrop-filter: blur(10px);
                     -webkit-backdrop-filter: blur(10px);
                     border: 1px solid rgba(224, 227, 220, 0.8) !important;
                     border-radius: 24px !important;
-                    box-shadow: 0px -8px 32px rgba(0, 0, 0, 0.12) !important;
-                    padding: 8px 16px 18px 16px !important;
+                    box-shadow: 0px -8px 32px rgba(0, 0, 0, 0.15) !important;
+                    padding: 8px 16px 20px 16px !important;
                     z-index: 9999 !important;
                     overflow-y: auto !important;
                 }}
