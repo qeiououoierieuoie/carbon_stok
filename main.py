@@ -162,7 +162,7 @@ def map_dashboard():
                 /* POSISI BARU: Sengaja dinaikkan bottom-nya agar muat utuh di layar HP */
                 .sidebar {{
                     position: absolute !important;
-                    bottom: 30px !important; /* Diubah dari 12px ke 80px agar terangkat ke atas */
+                    bottom: 50px !important; /* Diubah dari 12px ke 80px agar terangkat ke atas */
                     left: 12px !important;
                     right: 12px !important;
                     top: auto !important;
