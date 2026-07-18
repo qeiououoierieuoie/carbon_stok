@@ -7,7 +7,9 @@ import json
 
 app = FastAPI()
 
-# Mengaktifkan CORS agar aplikasi Leaflet lancar diakses
+# ==============================================================================
+# 1. KEAMANAN & AKSESBILITY (CORS)
+# ==============================================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,88 +19,118 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# AUTENTIKASI GOOGLE EARTH ENGINE
+# 2. INITIALISASI GOOGLE EARTH ENGINE (DENGAN FAILSAFE)
 # ==============================================================================
-gee_credentials = os.environ.get("GEE_CREDENTIALS")
-PROJECT_ID = 'imposing-kayak-470402-v4'
+GEE_CREDENTIALS = os.environ.get("GEE_CREDENTIALS")
+PROJECT_ID = 'imposing-kayak-470402-v4'  # ID Project Google Cloud Anda
 
-if gee_credentials:
-    try:
-        cred_dict = json.loads(gee_credentials)
+try:
+    if GEE_CREDENTIALS:
+        cred_dict = json.loads(GEE_CREDENTIALS)
         private_key = cred_dict.get('private_key', '').replace('\\n', '\n')
         credentials = ee.ServiceAccountCredentials(cred_dict['client_email'], key_data=private_key)
         ee.Initialize(credentials=credentials, project=PROJECT_ID)
-        print("GEE terhubung sukses via Service Account.")
-    except Exception as e:
-        print(f"Gagal memuat Service Account, mencoba lokal fallback: {e}")
+        print("Backend GEE Terkoneksi Sukses.")
+    else:
+        # Fallback lokal jika dijalankan di PC sendiri sebelum dideploy
         ee.Initialize(project=PROJECT_ID)
-else:
-    try:
-        ee.Initialize(project=PROJECT_ID)
-    except Exception as e:
-        print(f"Kredensial tidak ditemukan: {e}")
+        print("Backend GEE Terkoneksi Sukses (Lokal).")
+except Exception as e:
+    print(f"CRITICAL: Gagal menginisialisasi GEE. Cek Environment Variables Vercel! Error: {e}")
 
-# Area Padang dengan radius penyaringan 50 km
-aoi = ee.Geometry.Point([100.3624642, -0.9242544]).buffer(50000)
+# Fokus Area: Padang, Indonesia dengan radius aman 20km agar proses komputasi serverless instan
+aoi = ee.Geometry.Point([100.3624642, -0.9242544]).buffer(20000)
 
 # ==============================================================================
-# PROCESSING FUNCTIONS
+# 3. ENGINE PROSES DATA SATELIT (OPTIMIZED FOR SPEED)
 # ==============================================================================
 def mask_s2_clouds(image):
+    """Menghapus piksel awan dan bayangan awan menggunakan band SCL Sentinel-2"""
     scl = image.select('SCL')
     cloud_mask = (
-        scl.neq(3)   # Bayangan awan
-        .And(scl.neq(8))  # Awan probabilitas tinggi
-        .And(scl.neq(9))  # Awan probabilitas sedang
-        .And(scl.neq(10)) # Sirrus
-        .And(scl.neq(11)) # Salju/Es
+        scl.neq(3)         # Bayangan awan
+        .And(scl.neq(8))   # Awan probabilitas tinggi
+        .And(scl.neq(9))   # Awan probabilitas sedang
+        .And(scl.neq(10))  # Sirrus
+        .And(scl.neq(11))  # Salju/Es
     )
     return image.updateMask(cloud_mask).divide(10000)
 
 def compute_carbon_stock(img):
+    """Menghitung indeks vegetasi (NDVI) menjadi estimasi stok karbon biner"""
     ndvi = img.normalizedDifference(['B8', 'B4']).rename('NDVI')
     biomass = ndvi.multiply(250).add(20)
     carbon = biomass.multiply(0.47).max(0).rename("carbon")
     return carbon
 
-def get_carbon_raster(start_date_str: str, end_date_str: str):
+def get_carbon_raster(start_date: str, end_date: str):
+    """Mengambil koleksi citra Sentinel-2 pada batas area dan rentang tanggal tertentu"""
     collection = (
         ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         .filterBounds(aoi)
-        .filterDate(ee.Date(start_date_str), ee.Date(end_date_str))
-        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 70))
+        .filterDate(ee.Date(start_date), ee.Date(end_date))
+        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 50)) # Batas toleransi awan diperketat
         .map(mask_s2_clouds)
     )
-    return compute_carbon_stock(collection.median())
+    
+    # Ambil nilai median lalu potong (.clip) ke area Padang agar beban rendering ringan
+    composite = collection.median()
+    return compute_carbon_stock(composite).clip(aoi)
 
 # ==============================================================================
-# WEB INTERFACE (HTML Dashboard)
+# 4. ENDPOINT API RASTER (UNTUK DIKONSUMSI FRONTEND LEAFLET)
+# ==============================================================================
+@app.get("/api/raster")
+def get_raster_tile(start: str, end: str):
+    try:
+        carbon_layer = get_carbon_raster(start, end)
+        
+        # Palet Warna: Ungu (Karbon Rendah) -> Hijau -> Kuning (Karbon Tinggi)
+        vis_params = {
+            "min": 0,
+            "max": 120,
+            "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]
+        }
+        
+        # Minta URL ubin/tile map ID dari server Google
+        map_id = carbon_layer.getMapId(vis_params)
+        return {"url": map_id["tile_fetcher"].url_format, "status": "success"}
+    except Exception as e:
+        # Menangkap error internal GEE agar fungsi serverless tidak crash total
+        return {"url": "", "status": "error", "message": str(e)}
+
+# ==============================================================================
+# 5. FRONTEND INTERFACES (DASBOR UTAMA)
 # ==============================================================================
 @app.get("/map", response_class=HTMLResponse)
 @app.get("/", response_class=HTMLResponse)
 def map_dashboard():
-    # Menetapkan acuan default ke tahun yang sudah pasti memiliki data stabil (contoh: 2024)
-    default_year = "2024"
-    default_date = "2024-07-01"
+    # Mengunci waktu default ke tanggal riil hari ini di tahun 2026
+    default_date = "2026-07-18"
     
     html_content = f"""
     <!DOCTYPE html>
     <html lang="id">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Carbon Multi-Scale Dashboard</title>
+        
+        <!-- Pemanggilan Peta Leaflet.js -->
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        
+        <!-- Google Fonts -->
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&family=IBM+Plex+Mono&display=swap">
         
         <style>
             html, body {{ margin:0; height:100%; background:#F7F8F5; overflow:hidden; }}
-            #map {{ height:100vh; width: calc(100% - 280px); margin-left: 280px; }}
+            #map {{ height:100vh; width: calc(100% - 280px); margin-left: 280px; z-index: 1; }}
 
             .sidebar {{
                 position:absolute; top:0; left:0; bottom:0;
                 width:280px; background:#F7F8F5; border-right:1px solid #E0E3DC;
-                z-index:9999; padding:20px 18px; box-sizing:border-box;
+                z-index:999; padding:20px 18px; box-sizing:border-box;
                 font-family:'Inter', sans-serif; color:#1B2430;
                 display:flex; flex-direction:column; overflow-y:auto;
             }}
@@ -117,7 +149,7 @@ def map_dashboard():
 
             .readout {{ background:#FFFFFF; border:1px solid #E0E3DC; border-radius:10px; padding:12px; margin-top:14px;}}
             .readout .label {{ font-size:10px; color:#6B7688; font-weight:600; text-transform: uppercase; letter-spacing:0.3px; }}
-            .readout .value {{ font-family:'IBM Plex Mono', monospace; font-size:12px; margin-top:4px; color:#1B2430; }}
+            .readout .value {{ font-family:'IBM Plex Mono', monospace; font-size:11px; margin-top:4px; color:#1B2430; word-break: break-word; }}
 
             select, input[type="date"] {{
                 width:100%; background:#FFFFFF; border:1px solid #E0E3DC;
@@ -138,7 +170,6 @@ def map_dashboard():
                 height: 80px; font-family: 'IBM Plex Mono', monospace; 
                 font-size: 11px; color: #6B7688; line-height: 1;
             }}
-            .leaflet-control-layers {{ border-radius: 8px !important; font-size: 12px; font-family: 'Inter', sans-serif; }}
         </style>
     </head>
     <body>
@@ -146,11 +177,11 @@ def map_dashboard():
     <div class="sidebar">
         <div style="display:flex; align-items:center; gap:8px;">
             <span class="live-dot"></span>
-            <span style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:#3B6D11;">GEE Connected</span>
+            <span style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:#3B6D11;">GEE Cloud Connected</span>
         </div>
         
         <div class="title">Carbon Multi-Scale</div>
-        <div class="coords">Padang Area [100.36, -0.92]</div>
+        <div class="coords">Kota Padang [100.36, -0.92]</div>
         
         <div class="divider"></div>
         
@@ -161,7 +192,7 @@ def map_dashboard():
         
         <div class="divider"></div>
 
-        <!-- Bagian Input Dinamis Sidebar -->
+        <!-- Inputs Konfigurasi Waktu -->
         <div id="calendarGroup" class="input-group" style="display: block;">
             <span style="font-size:11px; color:#6B7688; font-weight:500;">Pilih Tanggal Akhir:</span>
             <input type="date" id="datePicker" value="{default_date}" onchange="fetchCalendarData()">
@@ -177,30 +208,35 @@ def map_dashboard():
                 <option value="09">September</option><option value="10">Oktober</option>
                 <option value="11">November</option><option value="12">Desember</option>
             </select>
+            <select id="monthYearSelect" onchange="fetchMonthlyData()" style="margin-top: 4px;">
+                <option value="2024">Tahun 2024</option>
+                <option value="2025">Tahun 2025</option>
+                <option value="2026" selected>Tahun 2026</option>
+            </select>
         </div>
 
         <div id="yearlyGroup" class="input-group">
             <span style="font-size:11px; color:#6B7688; font-weight:500;">Pilih Tahun Analisis:</span>
             <select id="yearSelect" onchange="fetchYearlyData()">
-                <option value="2022">Tahun 2022</option>
-                <option value="2023">Tahun 2023</option>
-                <option value="2024" selected>Tahun 2024</option>
+                <option value="2024">Tahun 2024</option>
                 <option value="2025">Tahun 2025</option>
+                <option value="2026" selected>Tahun 2026</option>
             </select>
         </div>
 
-        <!-- Output Tampilan Tanggal -->
+        <!-- Box Status Pengambilan Data -->
         <div class="readout">
             <div class="label" id="modeLabel">MODE: 30-DAY CALENDAR</div>
-            <div class="value" id="dateRangeDisplay">-</div>
+            <div class="value" id="dateRangeDisplay">Memulai mesin peta...</div>
         </div>
 
+        <!-- Legenda Indikator Karbon -->
         <div class="legend-container">
-            <div style="font-size:11px; font-weight:600; color:#6B7688; text-transform:uppercase; letter-spacing:0.5px;">Estimasi Karbon</div>
+            <div style="font-size:11px; font-weight:600; color:#6B7688; text-transform:uppercase; letter-spacing:0.5px;">Estimasi Stok Karbon</div>
             <div class="legend-wrapper">
                 <div class="legend-bar"></div>
                 <div class="legend-ticks">
-                    <span>120 Max</span>
+                    <span>120 Max (Ton/Ha)</span>
                     <span>60 Mid</span>
                     <span>0 Min</span>
                 </div>
@@ -211,11 +247,11 @@ def map_dashboard():
     <div id="map"></div>
 
     <script>
+        // Setup Peta Dasar
         const baseMaps = {{
             "OpenStreetMap": L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png'),
             "Google Satellite": L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={{x}}&y={{y}}&z={{z}}', {{ attribution: '© Google' }}),
-            "Google Hybrid": L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={{x}}&y={{y}}&z={{z}}', {{ attribution: '© Google Maps' }}),
-            "Esri World Imagery": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'Tiles © Esri' }})
+            "Google Hybrid": L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={{x}}&y={{y}}&z={{z}}', {{ attribution: '© Google Maps' }})
         }};
 
         const map = L.map('map', {{
@@ -224,19 +260,22 @@ def map_dashboard():
             layers: [baseMaps["OpenStreetMap"]]
         }});
 
+        // Membuat layer pane khusus untuk meletakkan raster GEE di atas peta dasar
         map.createPane('carbonPane');
         map.getPane('carbonPane').style.zIndex = 600;
         
         const carbonLayerGroup = L.layerGroup().addTo(map);
-        L.control.layers(baseMaps, null, {{ position: 'topright', collapsed: true }}).addTo(map);
+        L.control.layers(baseMaps, null, {{ position: 'topright' }}).addTo(map);
 
-        function updateLayer(tileUrl, labelText) {{
+        function updateLayer(data, labelText) {{
             carbonLayerGroup.clearLayers();
-            if(!tileUrl || tileUrl.includes("error") || tileUrl === "") {{
-                document.getElementById("dateRangeDisplay").innerText = "Data kosong / awan tebal.";
+            
+            if(!data.url || data.status === "error") {{
+                document.getElementById("dateRangeDisplay").innerText = "Gagal memuat: " + (data.message || "Awan tebal/Data kosong");
                 return;
             }}
-            let layer = L.tileLayer(tileUrl, {{ opacity: 0.75, pane: 'carbonPane' }});
+            
+            let layer = L.tileLayer(data.url, {{ opacity: 0.75, pane: 'carbonPane' }});
             layer.addTo(carbonLayerGroup);
             document.getElementById("dateRangeDisplay").innerText = labelText;
         }}
@@ -255,6 +294,7 @@ def map_dashboard():
                 document.getElementById('btn-calendar').classList.add('active');
                 document.getElementById("calendarGroup").style.display = "block";
                 document.getElementById("modeLabel").innerText = "MODE: 30-DAY CALENDAR";
+                document.getElementById("datePicker").value = "2026-07-18";
                 fetchCalendarData();
             }} else if (mode === 'monthly') {{
                 document.getElementById('btn-monthly').classList.add('active');
@@ -270,22 +310,23 @@ def map_dashboard():
         }}
 
         function fetch7DayData() {{
-            document.getElementById("dateRangeDisplay").innerText = "Memproses...";
-            let today = new Date(document.getElementById('datePicker').value);
-            let sevenDaysAgo = new Date(today);
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            document.getElementById("dateRangeDisplay").innerText = "Menghitung data satelit...";
+            // Menggunakan waktu asli hari ini di sistem (Juli 2026)
+            let today = new Date();
+            let sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(today.getDate() - 7);
             
             let startStr = sevenDaysAgo.toISOString().split('T')[0];
             let endStr = today.toISOString().split('T')[0];
 
             fetch(`/api/raster?start=${{startStr}}&end=${{endStr}}`)
                 .then(r => r.json())
-                .then(d => updateLayer(d.url, `${{startStr}} s/d ${{endStr}}`))
-                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Gagal memuat.");
+                .then(d => updateLayer(d, `${{startStr}} s/d ${{endStr}}`))
+                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Koneksi terputus.");
         }}
 
         function fetchCalendarData() {{
-            document.getElementById("dateRangeDisplay").innerText = "Memproses...";
+            document.getElementById("dateRangeDisplay").innerText = "Menghitung data satelit...";
             let endDateVal = document.getElementById("datePicker").value;
             let endDate = new Date(endDateVal);
             let startDate = new Date(endDate);
@@ -296,54 +337,40 @@ def map_dashboard():
 
             fetch(`/api/raster?start=${{startStr}}&end=${{endStr}}`)
                 .then(r => r.json())
-                .then(d => updateLayer(d.url, `${{startStr}} s/d ${{endStr}}`))
-                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Gagal memuat.");
+                .then(d => updateLayer(d, `${{startStr}} s/d ${{endStr}}`))
+                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Koneksi terputus.");
         }}
 
         function fetchMonthlyData() {{
-            document.getElementById("dateRangeDisplay").innerText = "Memproses...";
+            document.getElementById("dateRangeDisplay").innerText = "Mengolah mosaik bulanan...";
             let month = document.getElementById("monthSelect").value;
-            let year = document.getElementById("yearSelect").value || "{default_year}";
+            let year = document.getElementById("monthYearSelect").value;
             
             let startStr = `${{year}}-${{month}}-01`;
             let endStr = new Date(year, month, 0).toISOString().split('T')[0];
 
             fetch(`/api/raster?start=${{startStr}}&end=${{endStr}}`)
                 .then(r => r.json())
-                .then(d => updateLayer(d.url, `Koleksi Bulan: ${{month}} / ${{year}}`))
-                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Gagal memuat.");
+                .then(d => updateLayer(d, `Periode: Bulan ${{month}} - ${{year}}`))
+                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Koneksi terputus.");
         }}
 
         function fetchYearlyData() {{
-            document.getElementById("dateRangeDisplay").innerText = "Memproses...";
+            document.getElementById("dateRangeDisplay").innerText = "Mengolah komposit tahunan...";
             let year = document.getElementById("yearSelect").value;
             let startStr = `${{year}}-01-01`;
             let endStr = `${{year}}-12-31`;
 
             fetch(`/api/raster?start=${{startStr}}&end=${{endStr}}`)
                 .then(r => r.json())
-                .then(d => updateLayer(d.url, `Rata-rata Citra Tahun ${{year}}`))
-                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Gagal memuat.");
+                .then(d => updateLayer(d, `Komposit Peta Tahun ${{year}}`))
+                .catch(() => document.getElementById("dateRangeDisplay").innerText = "Koneksi terputus.");
         }}
 
-        // Otomatis memanggil data kalender berbasis 2024 saat pertama dimuat
+        // Inisialisasi awal saat halaman pertama dibuka
         fetchCalendarData();
     </script>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
-
-@app.get("/api/raster")
-def get_raster_tile(start: str, end: str):
-    try:
-        carbon_img = get_carbon_raster(start, end)
-        vis_params = {
-            "min": 0,
-            "max": 120,
-            "palette": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]
-        }
-        map_id = carbon_img.getMapId(vis_params)
-        return {"url": map_id["tile_fetcher"].url_format}
-    except Exception as e:
-        return {"error": str(e), "url": ""}
