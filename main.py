@@ -385,3 +385,12 @@ def map_dashboard():
     </html>
     """
     return HTMLResponse(content=html_content)
+
+# ==============================================================================
+# 6. BLOK EKSEKUSI PORT JARINGAN DINAMIS (UNTUK RAILWAY)
+# ==============================================================================
+if __name__ == "__main__":
+    import uvicorn
+    # Railway menetapkan port dinamis melalui sistem environment variables
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
