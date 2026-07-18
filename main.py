@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 import ee
 import os
 import json
+from datetime import datetime
 
 app = FastAPI()
 
@@ -19,7 +20,7 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# 2. INITIALISASI GOOGLE EARTH ENGINE (DENGAN FAILSAFE)
+# 2. INITIALISASI GOOGLE EARTH ENGINE (DENGAN FIX UNTUK SERVERLESS VERCEL)
 # ==============================================================================
 GEE_CREDENTIALS = os.environ.get("GEE_CREDENTIALS")
 PROJECT_ID = 'imposing-kayak-470402-v4'  # ID Project Google Cloud Anda
@@ -27,8 +28,17 @@ PROJECT_ID = 'imposing-kayak-470402-v4'  # ID Project Google Cloud Anda
 try:
     if GEE_CREDENTIALS:
         cred_dict = json.loads(GEE_CREDENTIALS)
-        private_key = cred_dict.get('private_key', '').replace('\\n', '\n')
-        credentials = ee.ServiceAccountCredentials(cred_dict['client_email'], key_data=private_key)
+        
+        # FIX 1: Perbaiki format newline (\n) langsung di dalam dictionary
+        if 'private_key' in cred_dict:
+            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+        
+        # FIX 2: Masukkan seluruh dictionary yang sudah di-serialize kembali ke json.dumps()
+        credentials = ee.ServiceAccountCredentials(
+            cred_dict['client_email'], 
+            key_data=json.dumps(cred_dict)
+        )
+        
         ee.Initialize(credentials=credentials, project=PROJECT_ID)
         print("Backend GEE Terkoneksi Sukses.")
     else:
@@ -36,7 +46,7 @@ try:
         ee.Initialize(project=PROJECT_ID)
         print("Backend GEE Terkoneksi Sukses (Lokal).")
 except Exception as e:
-    print(f"CRITICAL: Gagal menginisialisasi GEE. Cek Environment Variables Vercel! Error: {e}")
+    print(f"CRITICAL: Gagal menginisialisasi GEE. Error: {e}")
 
 # Fokus Area: Padang, Indonesia dengan radius aman 20km agar proses komputasi serverless instan
 aoi = ee.Geometry.Point([100.3624642, -0.9242544]).buffer(20000)
@@ -105,7 +115,7 @@ def get_raster_tile(start: str, end: str):
 @app.get("/map", response_class=HTMLResponse)
 @app.get("/", response_class=HTMLResponse)
 def map_dashboard():
-    # Mengunci waktu default ke tanggal riil hari ini di tahun 2026
+    # Mengunci waktu default ke tanggal hari ini di tahun 2026
     default_date = "2026-07-18"
     
     html_content = f"""
@@ -195,7 +205,7 @@ def map_dashboard():
         <!-- Inputs Konfigurasi Waktu -->
         <div id="calendarGroup" class="input-group" style="display: block;">
             <span style="font-size:11px; color:#6B7688; font-weight:500;">Pilih Tanggal Akhir:</span>
-            <input type="date" id="datePicker" value="{default_date}" onchange="fetchCalendarData()">
+            <input type="date" id="datePicker" value="{default_date}">
         </div>
 
         <div id="monthlyGroup" class="input-group">
@@ -260,7 +270,6 @@ def map_dashboard():
             layers: [baseMaps["OpenStreetMap"]]
         }});
 
-        // Membuat layer pane khusus untuk meletakkan raster GEE di atas peta dasar
         map.createPane('carbonPane');
         map.getPane('carbonPane').style.zIndex = 600;
         
@@ -311,13 +320,12 @@ def map_dashboard():
 
         function fetch7DayData() {{
             document.getElementById("dateRangeDisplay").innerText = "Menghitung data satelit...";
-            // Menggunakan waktu asli hari ini di sistem (Juli 2026)
-            let today = new Date();
-            let sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(today.getDate() - 7);
+            let endDate = new Date("{default_date}");
+            let startDate = new Date(endDate);
+            startDate.setDate(endDate.getDate() - 7);
             
-            let startStr = sevenDaysAgo.toISOString().split('T')[0];
-            let endStr = today.toISOString().split('T')[0];
+            let startStr = startDate.toISOString().split('T')[0];
+            let endStr = endDate.toISOString().split('T')[0];
 
             fetch(`/api/raster?start=${{startStr}}&end=${{endStr}}`)
                 .then(r => r.json())
@@ -366,6 +374,9 @@ def map_dashboard():
                 .then(d => updateLayer(d, `Komposit Peta Tahun ${{year}}`))
                 .catch(() => document.getElementById("dateRangeDisplay").innerText = "Koneksi terputus.");
         }}
+
+        // Penambahan event listener stabil pada date picker
+        document.getElementById("datePicker").addEventListener("change", fetchCalendarData);
 
         // Inisialisasi awal saat halaman pertama dibuka
         fetchCalendarData();
