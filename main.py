@@ -113,9 +113,7 @@ def map_dashboard():
             /* Handle drag mobile disembunyikan total di laptop */
             .drag-handle {{ display: none; }}
 
-            /* ==============================================================================
-               KEMBALI KE ASLI: STYLE DESKTOP LAPTOP PERSIS SEPERTI DI GAMBAR ANDA
-               ============================================================================== */
+            /* Layout Sidebar Utama (Desktop/Laptop) */
             .sidebar {{
                 width: 280px; background:#F7F8F5; border-right:1px solid #E0E3DC; 
                 z-index:999; padding:20px 18px; box-sizing:border-box;
@@ -144,14 +142,30 @@ def map_dashboard():
             }}
             .input-group {{ display:none; margin-top:10px; }}
             
-            .legend-container {{ margin-top:auto; padding-top:20px; }}
-            .legend-bar {{ width: 14px; height: 80px; border-radius: 4px; background: linear-gradient(180deg, #fde725, #5ec962, #21918c, #3b528b, #440154); }}
+            /* ==============================================================================
+               STYLE LEGENDA HORIZONTAL (DI ATAS)
+               ============================================================================== */
+            .legend-container {{ margin-bottom: 16px; }}
+            .legend-wrapper {{ display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }}
+            .legend-bar {{ 
+                width: 100%; 
+                height: 10px; 
+                border-radius: 4px; 
+                background: linear-gradient(90deg, #440154, #3b528b, #21918c, #5ec962, #fde725); 
+            }}
+            .legend-labels {{ 
+                display: flex; 
+                flex-direction: row; 
+                justify-content: space-between; 
+                font-family: 'IBM Plex Mono', monospace; 
+                font-size: 11px; 
+                color: #6B7688; 
+            }}
 
             /* ==============================================================================
-               KHUSUS MOBILE ONLY: POSISI FLOATING BOTTOM SHEET NAIK LEBIH KEATAS AGAR AMAN
+               KHUSUS MOBILE ONLY: LAYOUT RESPONSIVE & SIDEBAR SCROLL
                ============================================================================== */
             @media screen and (max-width: 768px) {{
-                /* Peta dipaksa fullscreen di belakang layar HP */
                 #map {{
                     position: absolute !important;
                     top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
@@ -159,16 +173,15 @@ def map_dashboard():
                     z-index: 1 !important;
                 }}
                 
-                /* POSISI BARU: Sengaja dinaikkan bottom-nya agar muat utuh di layar HP */
                 .sidebar {{
                     position: absolute !important;
-                    bottom: 60px !important; /* Diubah dari 12px ke 80px agar terangkat ke atas */
+                    bottom: 80px !important; 
                     left: 12px !important;
                     right: 12px !important;
                     top: auto !important;
                     width: calc(100% - 24px) !important;
                     height: auto !important;
-                    max-height: 60vh !important; /* Ditambah tinggi maksimalnya agar lebih leluasa */
+                    max-height: 55vh !important;
                     background: rgba(255, 255, 255, 0.96) !important;
                     backdrop-filter: blur(10px);
                     -webkit-backdrop-filter: blur(10px);
@@ -177,26 +190,24 @@ def map_dashboard():
                     box-shadow: 0px -8px 32px rgba(0, 0, 0, 0.15) !important;
                     padding: 8px 16px 20px 16px !important;
                     z-index: 9999 !important;
-                    overflow-y: auto !important;
+                    overflow-y: auto !important; 
+                    -webkit-overflow-scrolling: touch;
                 }}
                 
-                /* Memunculkan garis drag handle ala Google Maps */
                 .drag-handle {{
                     display: block !important;
                     width: 40px;
                     height: 4px;
                     background: #CBD5E1;
                     border-radius: 2px;
-                    margin: 4px auto 14px auto;
+                    margin: 4px auto 12px auto;
+                    flex-shrink: 0;
                 }}
                 
-                /* Hilangkan elemen sekunder demi space HP */
-                .coords, .divider, .legend-container {{ display: none !important; }}
+                .coords, .divider {{ display: none !important; }}
+                .title {{ font-size: 16px; margin-top: 2px; margin-bottom: 12px; font-weight:600; }}
                 
-                .title {{ font-size: 16px; margin-top: 2px; margin-bottom: 10px; font-weight:600; }}
-                
-                /* Tombol Menu jadi berjejer horizontal samping-sampingan di HP */
-                .btn-group {{ flex-direction: row !important; gap: 6px !important; width: 100% !important; }}
+                .btn-group {{ flex-direction: row !important; gap: 6px !important; width: 100% !important; margin-top: 10px; }}
                 .navbtn {{ 
                     justify-content: center !important; 
                     padding: 10px 6px !important; 
@@ -211,20 +222,20 @@ def map_dashboard():
                     color: #FFFFFF !important; 
                     border-color: #1B2430 !important; 
                     border-left: none !important; 
-                    font-weight: 500 !important; 
                 }}
                 
                 .readout {{ margin-top: 10px !important; padding: 10px !important; border-radius: 12px !important; }}
                 select, input[type="date"] {{ padding: 8px !important; font-size: 12px !important; border-radius: 10px !important; }}
                 
-                /* Pindahkan kontrol zoom bawaan ke kanan atas agar tidak tabrakan */
+                .legend-container {{ margin-bottom: 12px !important; }}
+                .legend-labels {{ font-size: 10px !important; }}
+
                 .leaflet-top.leaflet-left {{ top: 12px !important; left: auto !important; right: 12px !important; }}
             }}
         </style>
     </head>
     <body>
     <div class="app-container">
-        <!-- Sidebar kiri (Desktop) / Bottom Sheet melayang (Mobile) -->
         <div class="sidebar">
             <div class="drag-handle"></div>
             
@@ -235,6 +246,17 @@ def map_dashboard():
             <div class="title">Carbon Multi-Scale</div>
             <div class="coords">Kota Padang [100.36, -0.92]</div>
             <div class="divider"></div>
+            
+            <!-- Posisi Baru: Komponen Legenda Horizontal Berada di Atas -->
+            <div class="legend-container">
+                <div style="font-size:11px; font-weight:600; color:#6B7688;">ESTIMASI STOK KARBON (Ton/Ha)</div>
+                <div class="legend-wrapper">
+                    <div class="legend-labels">
+                        <span>0 Min</span><span>60 Mid</span><span>120 Max</span>
+                    </div>
+                    <div class="legend-bar"></div>
+                </div>
+            </div>
             
             <div class="btn-group">
                 <button class="navbtn active" id="btn-calendar" onclick="switchMode('calendar')">30-Day Calendar</button>
@@ -255,19 +277,8 @@ def map_dashboard():
                 <div class="label" id="modeLabel">MODE: 30-DAY CALENDAR</div>
                 <div class="value" id="dateRangeDisplay">Memproses mesin peta...</div>
             </div>
-            
-            <div class="legend-container">
-                <div style="font-size:11px; font-weight:600; color:#6B7688;">ESTIMASI STOK KARBON (Ton/Ha)</div>
-                <div style="display:flex; gap:12px; margin-top:8px;">
-                    <div class="legend-bar"></div>
-                    <div style="display:flex; flex-direction:column; justify-content:space-between; height:80px; font-family:'IBM Plex Mono'; font-size:11px; color:#6B7688;">
-                        <span>120 Max</span><span>60 Mid</span><span>0 Min</span>
-                    </div>
-                </div>
-            </div>
         </div>
         
-        <!-- Peta Utama -->
         <div id="map"></div>
     </div>
     <script>
@@ -277,10 +288,7 @@ def map_dashboard():
         }};
         const map = L.map('map', {{ center: [-0.9242544, 100.3624642], zoom: 11, layers: [baseMaps["OpenStreetMap"]] }});
         
-        // Atur posisi default tombol zoom ke pojok kiri atas (aman untuk desktop)
-        // Di mobile, script CSS media query otomatis akan memindahkannya agar tidak tabrakan
         map.zoomControl.setPosition('topleft');
-        
         map.createPane('carbonPane').style.zIndex = 600;
         const carbonLayerGroup = L.layerGroup().addTo(map);
 
