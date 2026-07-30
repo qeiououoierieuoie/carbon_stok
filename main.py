@@ -145,6 +145,7 @@ def calculate_stats(ndvi, carbon_img, moisture_img, aoi):
 
         def get_class_percentages(classed_img):
             area_img = pixel_area.addBands(classed_img)
+            # DITINGKATKAN SCALE=60 AGAR PERHITUNGAN STATISTIK PRODUCTION JAUH LEBIH CEPAT
             stats = (
                 area_img.reduceRegion(
                     reducer=ee.Reducer.sum().group(
@@ -377,7 +378,7 @@ def map_dashboard():
             .mobile-only-layer-card {{ display: none; }}
 
             /* ============================================================================== */
-            /* OPTIMASI LAYOUT KHUSUS MOBILE (MOBILE CHROME / SAMSUNG GALAXY) */
+            /* OPTIMASI LAYOUT KHUSUS MOBILE CHROME SAMSUNG GALAXY (A06/A05S DLSB) */
             /* ============================================================================== */
             @media screen and (max-width: 768px) {{
                 #map {{ position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; }}
@@ -397,8 +398,7 @@ def map_dashboard():
                     border: 1px solid rgba(224, 227, 220, 0.8) !important; 
                     border-radius: 16px !important;
                     box-shadow: 0px -6px 24px rgba(0, 0, 0, 0.18) !important; 
-                    /* PADDING BOTTOM DINAIKKAN MENJADI 90PX UNTUK RUANG SCROLL SANGAT LEGA */
-                    padding: 10px 14px 90px 14px !important; 
+                    padding: 10px 14px 28px 14px !important; 
                     box-sizing: border-box !important;
                     z-index: 9999 !important; 
                     overflow-y: auto !important; 
@@ -693,68 +693,69 @@ def map_dashboard():
             return selected.join(",");
         }}
 
+        function updateLayers(data, labelText) {{
+            carbonLayerGroup.clearLayers();
+            moistureLayerGroup.clearLayers();
+            ndviLayerGroup.clearLayers();
+            
+            if(data.status === "error" || !data.carbon_url) {{
+                document.getElementById("dateRangeDisplay").innerText = "Gagal memuat: " + (data.message || "Terjadi kendala");
+                return;
+            }}
+            
+            latestCarbonUrl = data.carbon_url;
+            latestMoistureUrl = data.moisture_url;
+            latestStats = data.stats || {{ ndvi: [0, 0, 0], carbon: [0, 0, 0], moisture: [0, 0, 0] }};
+
+            L.tileLayer(data.ndvi_url, {{ opacity: 0.75, pane: 'ndviPane' }}).addTo(ndviLayerGroup);
+            
+            toggleLayerVisibility();
+            document.getElementById("dateRangeDisplay").innerText = labelText;
+        }}
+
         function switchMode(mode) {{
             currentMode = mode;
-            document.getElementById('btn-calendar').classList.toggle('active', mode === 'calendar');
-            document.getElementById('btn-yearly').classList.toggle('active', mode === 'yearly');
-            
-            document.getElementById('calendarGroup').style.display = mode === 'calendar' ? 'block' : 'none';
-            document.getElementById('yearlyGroup').style.display = mode === 'yearly' ? 'block' : 'none';
-            
-            document.getElementById('modeLabel').innerText = mode === 'calendar' ? 'MODE: 30-DAY CALENDAR' : 'MODE: YEARLY DATA';
+            document.getElementById("btn-calendar").classList.toggle("active", mode === 'calendar');
+            document.getElementById("btn-yearly").classList.toggle("active", mode === 'yearly');
+            document.getElementById("calendarGroup").style.display = mode === 'calendar' ? 'block' : 'none';
+            document.getElementById("yearlyGroup").style.display = mode === 'yearly' ? 'block' : 'none';
+            document.getElementById("modeLabel").innerText = "MODE: " + (mode === 'calendar' ? "30-DAY CALENDAR" : "YEARLY DATA");
             fetchData();
         }}
 
         function fetchData() {{
-            let startDate, endDate;
+            document.getElementById("dateRangeDisplay").innerText = "Mengambil data GEE...";
+            let start, end, labelText;
+            const classes = getSelectedClasses();
 
             if (currentMode === 'calendar') {{
-                const selectedDate = document.getElementById('datePicker').value;
-                if (!selectedDate) return;
-                const end = new Date(selectedDate);
-                const start = new Date(end);
-                start.setDate(start.getDate() - 30);
+                const selectedDate = new Date(document.getElementById("datePicker").value);
+                const endDateStr = selectedDate.toISOString().split('T')[0];
                 
-                startDate = start.toISOString().split('T')[0];
-                endDate = end.toISOString().split('T')[0];
-                document.getElementById('dateRangeDisplay').innerText = `${{startDate}} s/d ${{endDate}}`;
+                const startDateObj = new Date(selectedDate);
+                startDateObj.setDate(startDateObj.getDate() - 30);
+                const startDateStr = startDateObj.toISOString().split('T')[0];
+                
+                start = startDateStr;
+                end = endDateStr;
+                labelText = `${{startDateStr}} s/d ${{endDateStr}}`;
             }} else {{
-                const selectedYear = document.getElementById('yearSelect').value;
-                startDate = `${{selectedYear}}-01-01`;
-                endDate = `${{selectedYear}}-12-31`;
-                document.getElementById('dateRangeDisplay').innerText = `Tahun ${{selectedYear}} (Full Year)`;
+                const year = document.getElementById("yearSelect").value;
+                start = `${{year}}-01-01`;
+                end = `${{year}}-12-31`;
+                labelText = `Komposit Tahun ${{year}}`;
             }}
 
-            const selectedClasses = getSelectedClasses();
-            
-            fetch(`/api/raster?start=${{startDate}}&end=${{endDate}}&classes=${{selectedClasses}}`)
+            fetch(`/api/raster?start=${{start}}&end=${{end}}&classes=${{classes}}`)
                 .then(res => res.json())
-                .then(data => {{
-                    if(data.status === "success") {{
-                        latestCarbonUrl = data.carbon_url;
-                        latestMoistureUrl = data.moisture_url;
-                        latestStats = data.stats;
-
-                        ndviLayerGroup.clearLayers();
-                        if(data.ndvi_url) {{
-                            L.tileLayer(data.ndvi_url, {{ opacity: 0.85, pane: 'ndviPane' }}).addTo(ndviLayerGroup);
-                        }}
-
-                        toggleLayerVisibility();
-                    }} else {{
-                        document.getElementById('dateRangeDisplay').innerText = "Gagal memuat data";
-                    }}
-                }})
+                .then(data => updateLayers(data, labelText))
                 .catch(err => {{
-                    console.error(err);
-                    document.getElementById('dateRangeDisplay').innerText = "Error koneksi server";
+                    document.getElementById("dateRangeDisplay").innerText = "Error memuat data";
                 }});
         }}
 
-        // Inisialisasi awal saat halaman dimuat
-        document.addEventListener("DOMContentLoaded", () => {{
-            fetchData();
-        }});
+        // Inisialisasi awal saat pertama dibuka
+        fetchData();
     </script>
     </body>
     </html>
