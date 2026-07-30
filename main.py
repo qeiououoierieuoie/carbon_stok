@@ -91,25 +91,19 @@ def compute_ndvi_classed(ndvi, selected_classes: List[int]):
     return classed.rename("ndvi_class")
 
 def calculate_stats(ndvi, carbon_img, moisture_img, aoi):
-    """
-    Menghitung pembagian kelas persentase (100%) untuk NDVI, Karbon, dan Kelembaban (NDMI).
-    """
     try:
         pixel_area = ee.Image.pixelArea()
 
-        # 1. Klasifikasi NDVI (Rendah: 1, Sedang: 2, Tinggi: 3)
         ndvi_classed = ndvi.gte(0.2).And(ndvi.lt(0.4)).multiply(1) \
             .add(ndvi.gte(0.4).And(ndvi.lt(0.6)).multiply(2)) \
             .add(ndvi.gte(0.6).multiply(3))
         ndvi_classed = ndvi_classed.updateMask(ndvi_classed.gt(0))
 
-        # 2. Klasifikasi Stok Karbon (Rendah < 40, Sedang 40-80, Tinggi > 80)
         carbon_classed = carbon_img.lt(40).multiply(1) \
             .add(carbon_img.gte(40).And(carbon_img.lt(80)).multiply(2)) \
             .add(carbon_img.gte(80).multiply(3))
         carbon_classed = carbon_classed.updateMask(carbon_img.gt(0))
 
-        # 3. Klasifikasi Kelembaban/NDMI (Kering < 0.1, Sedang 0.1-0.3, Basah > 0.3)
         moisture_classed = moisture_img.lt(0.1).multiply(1) \
             .add(moisture_img.gte(0.1).And(moisture_img.lt(0.3)).multiply(2)) \
             .add(moisture_img.gte(0.3).multiply(3))
@@ -161,7 +155,6 @@ def get_raster_layers(start_date: str, end_date: str, classes: List[int]):
     ndvi_classed_img = compute_ndvi_classed(ndvi, classes)
     moisture_img = compute_moisture(median_img)
     
-    # Hitung data statistik lengkap dengan pembagian 3 kelas
     stats_data = calculate_stats(ndvi, carbon_img, moisture_img, aoi)
     
     return carbon_img, ndvi_classed_img, moisture_img, stats_data
@@ -306,21 +299,35 @@ def map_dashboard():
 
             .mobile-only-layer-card {{ display: none; }}
 
+            /* ============================================================================== */
+            /* PENYESUAIAN KHUSUS KHUSUS MOBILE / LAYAR HP */
+            /* ============================================================================== */
             @media screen and (max-width: 768px) {{
                 #map {{ position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; }}
                 
                 .sidebar {{
-                    position: absolute !important; bottom: 10px !important; left: 10px !important; right: 10px !important; top: auto !important;
-                    width: calc(100% - 20px) !important; height: auto !important; 
-                    max-height: 38vh !important;
-                    background: rgba(255, 255, 255, 0.95) !important; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid rgba(224, 227, 220, 0.8) !important; border-radius: 16px !important;
-                    box-shadow: 0px -4px 20px rgba(0, 0, 0, 0.15) !important; padding: 8px 12px 12px 12px !important;
-                    z-index: 9999 !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;
+                    position: absolute !important; 
+                    bottom: 12px !important; 
+                    left: 10px !important; 
+                    right: 10px !important; 
+                    top: auto !important;
+                    width: calc(100% - 20px) !important; 
+                    height: auto !important; 
+                    max-height: 65vh !important; /* DITINGKATKAN AGAR LEBIH TINGGI DI HP (DARI 38vh KE 65vh) */
+                    background: rgba(255, 255, 255, 0.96) !important; 
+                    backdrop-filter: blur(12px); 
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(224, 227, 220, 0.8) !important; 
+                    border-radius: 16px !important;
+                    box-shadow: 0px -6px 24px rgba(0, 0, 0, 0.18) !important; 
+                    padding: 10px 14px 14px 14px !important;
+                    z-index: 9999 !important; 
+                    overflow-y: auto !important; 
+                    -webkit-overflow-scrolling: touch;
                 }}
-                .drag-handle {{ display: block !important; width: 32px; height: 3px; background: #CBD5E1; border-radius: 2px; margin: 0 auto 6px auto; flex-shrink: 0; }}
+                .drag-handle {{ display: block !important; width: 36px; height: 4px; background: #CBD5E1; border-radius: 2px; margin: 0 auto 8px auto; flex-shrink: 0; }}
                 .coords, .divider {{ display: none !important; }}
-                .title {{ font-size: 13px !important; margin-top: 0px; margin-bottom: 4px; font-weight:600; line-height: 1.2; }}
+                .title {{ font-size: 14px !important; margin-top: 0px; margin-bottom: 4px; font-weight:600; line-height: 1.2; }}
                 
                 .btn-group {{ flex-direction: row !important; gap: 4px !important; width: 100% !important; margin-top: 4px; }}
                 .navbtn {{ justify-content: center !important; padding: 6px 4px !important; font-size: 11px !important; text-align: center !important; border: 1px solid #E0E3DC !important; border-radius: 6px !important; background: #FFFFFF !important; }}
@@ -329,8 +336,8 @@ def map_dashboard():
                 .desktop-layer-control {{ display: none !important; }}
                 .mobile-only-layer-card {{ display: block !important; margin-top: 6px !important; padding: 6px 8px !important; }}
                 
-                .chart-card {{ padding: 6px !important; margin-top: 6px !important; }}
-                .chart-card div[style*="height"] {{ height: 110px !important; }}
+                .chart-card {{ padding: 8px !important; margin-top: 8px !important; }}
+                .chart-card div[style*="height"] {{ height: 130px !important; }}
             }}
         </style>
     </head>
@@ -378,7 +385,7 @@ def map_dashboard():
             
             <!-- LEGENDA 1: STOK KARBON -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Stok Karbon (Ton/Ha)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">1. Stok Karbon (Ton/Ha)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>0 Min</span><span>60 Mid</span><span>120 Max</span></div>
                     <div class="legend-bar-carbon"></div>
@@ -387,7 +394,7 @@ def map_dashboard():
 
             <!-- LEGENDA 2: KELEMBABAN -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Kelembaban (NDMI)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">2. Kelembaban (NDMI)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>Kering</span><span>Sedang</span><span>Basah</span></div>
                     <div class="legend-bar-moisture"></div>
@@ -396,7 +403,7 @@ def map_dashboard():
 
             <!-- LEGENDA 3: KERAPATAN NDVI -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Kerapatan Vegetasi (NDVI)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">3. Kerapatan Vegetasi (NDVI)</div>
                 <div class="legend-ndvi-grid">
                     <div class="legend-ndvi-box" style="background-color: #ffeb3b;">Rendah</div>
                     <div class="legend-ndvi-box" style="background-color: #8bc34a;">Sedang</div>
@@ -430,7 +437,7 @@ def map_dashboard():
             <!-- WIDGET GRAFIK DINAMIS -->
             <div class="chart-card" id="chartCard">
                 <div class="chart-card-title" id="chartTitle">Grafik Analisis</div>
-                <div style="position: relative; height: 110px;">
+                <div style="position: relative; height: 130px;">
                     <canvas id="dynamicChart"></canvas>
                 </div>
             </div>
@@ -582,7 +589,6 @@ def map_dashboard():
                 L.tileLayer(latestMoistureUrl, {{ opacity: 0.75, pane: 'moisturePane' }}).addTo(moistureLayerGroup);
             }}
 
-            // GRAFIK ADAPTIF BERDASARKAN LAYER PILIHAN PENGGUNA
             if (isCarbonChecked) {{
                 let c = latestStats.carbon || [0, 0, 0];
                 renderUniformChart('PROPORSI STOK KARBON (%)', ['Rendah', 'Sedang', 'Tinggi'], c, ['#440154', '#21918c', '#fde725']);
