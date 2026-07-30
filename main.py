@@ -384,25 +384,27 @@ def map_dashboard():
                 #map {{ position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; }}
                 
                 .sidebar {{
-                    position: absolute !important; 
-                    bottom: calc(16px + env(safe-area-inset-bottom)) !important; 
-                    left: 10px !important; 
-                    right: 10px !important; 
-                    top: auto !important;
-                    width: calc(100% - 20px) !important; 
-                    height: auto !important; 
-                    max-height: 55vh !important; 
-                    background: rgba(255, 255, 255, 0.96) !important; 
-                    backdrop-filter: blur(12px); 
-                    -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid rgba(224, 227, 220, 0.8) !important; 
-                    border-radius: 16px !important;
-                    box-shadow: 0px -6px 24px rgba(0, 0, 0, 0.18) !important; 
-                    padding: 10px 14px 28px 14px !important; 
-                    box-sizing: border-box !important;
-                    z-index: 9999 !important; 
-                    overflow-y: auto !important; 
-                    -webkit-overflow-scrolling: touch;
+                  position: absolute !important; 
+        /* DINAUKKAN Posisinya dari dasar layar */
+        bottom: calc(40px + env(safe-area-inset-bottom)) !important; 
+        left: 12px !important; 
+        right: 12px !important; 
+        top: auto !important;
+        width: calc(100% - 24px) !important; 
+        height: auto !important; 
+        max-height: 52vh !important; 
+        background: rgba(255, 255, 255, 0.96) !important; 
+        backdrop-filter: blur(12px); 
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(224, 227, 220, 0.8) !important; 
+        border-radius: 16px !important;
+        box-shadow: 0px -6px 24px rgba(0, 0, 0, 0.18) !important; 
+        /* EXTRA PADDING BOTTOM agar elemen paling bawah tidak terpotong saat di-scroll */
+        padding: 12px 14px 40px 14px !important; 
+        box-sizing: border-box !important;
+        z-index: 9999 !important; 
+        overflow-y: auto !important; 
+        -webkit-overflow-scrolling: touch;
                 }}
                 .drag-handle {{ display: block !important; width: 36px; height: 4px; background: #CBD5E1; border-radius: 2px; margin: 0 auto 8px auto; flex-shrink: 0; }}
                 .coords, .divider {{ display: none !important; }}
