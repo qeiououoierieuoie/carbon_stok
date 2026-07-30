@@ -46,12 +46,14 @@ def initialize_gee_lazy():
     return getattr(initialize_gee_lazy, "error", None)
 
 # ==============================================================================
-# AOI GEOMETRY (DENGAN FALLBACK AUTOMATIS)
+# AOI GEOMETRY (DENGAN FALLBACK AMAN)
 # ==============================================================================
 def get_aoi():
     asset_name = "projects/maps-testing-464609/assets/padang_baru"
     try:
-        return ee.FeatureCollection(asset_name)
+        aoi = ee.FeatureCollection(asset_name)
+        _ = aoi.limit(1).getInfo()
+        return aoi
     except Exception:
         return ee.FeatureCollection("FAO/GAUL/2015/level2").filter(ee.Filter.eq("ADM2_NAME", "Padang"))
 
@@ -61,11 +63,15 @@ def mask_s2_clouds(image):
     return image.updateMask(cloud_mask).divide(10000)
 
 # ==============================================================================
-# PERHITUNGAN GEE
+# PERHITUNGAN GEE & KLASIFIKASI INDIKATOR
 # ==============================================================================
 def compute_carbon_stock(ndvi):
     biomass = ndvi.multiply(250).add(20)
     return biomass.multiply(0.47).max(0).rename("carbon")
+
+def compute_moisture(image):
+    ndmi = image.normalizedDifference(['B8', 'B11'])
+    return ndmi.rename("moisture")
 
 def compute_ndvi_classed(ndvi, selected_classes: List[int]):
     low = ndvi.gte(0.2).And(ndvi.lt(0.4)).multiply(1)
@@ -84,9 +90,58 @@ def compute_ndvi_classed(ndvi, selected_classes: List[int]):
         
     return classed.rename("ndvi_class")
 
-def compute_moisture(image):
-    ndmi = image.normalizedDifference(['B8', 'B11'])
-    return ndmi.rename("moisture")
+def calculate_stats(ndvi, carbon_img, moisture_img, aoi):
+    """
+    Menghitung pembagian kelas persentase (100%) untuk NDVI, Karbon, dan Kelembaban (NDMI).
+    """
+    try:
+        pixel_area = ee.Image.pixelArea()
+
+        # 1. Klasifikasi NDVI (Rendah: 1, Sedang: 2, Tinggi: 3)
+        ndvi_classed = ndvi.gte(0.2).And(ndvi.lt(0.4)).multiply(1) \
+            .add(ndvi.gte(0.4).And(ndvi.lt(0.6)).multiply(2)) \
+            .add(ndvi.gte(0.6).multiply(3))
+        ndvi_classed = ndvi_classed.updateMask(ndvi_classed.gt(0))
+
+        # 2. Klasifikasi Stok Karbon (Rendah < 40, Sedang 40-80, Tinggi > 80)
+        carbon_classed = carbon_img.lt(40).multiply(1) \
+            .add(carbon_img.gte(40).And(carbon_img.lt(80)).multiply(2)) \
+            .add(carbon_img.gte(80).multiply(3))
+        carbon_classed = carbon_classed.updateMask(carbon_img.gt(0))
+
+        # 3. Klasifikasi Kelembaban/NDMI (Kering < 0.1, Sedang 0.1-0.3, Basah > 0.3)
+        moisture_classed = moisture_img.lt(0.1).multiply(1) \
+            .add(moisture_img.gte(0.1).And(moisture_img.lt(0.3)).multiply(2)) \
+            .add(moisture_img.gte(0.3).multiply(3))
+        moisture_classed = moisture_classed.updateMask(moisture_img.gt(-1))
+
+        def get_class_percentages(classed_img):
+            area_img = pixel_area.addBands(classed_img)
+            stats = area_img.reduceRegion(
+                reducer=ee.Reducer.sum().group(groupField=1, groupName='class'),
+                geometry=aoi.geometry(),
+                scale=30,
+                maxPixels=1e9
+            ).get('groups').getInfo()
+            
+            res = {1: 0.0, 2: 0.0, 3: 0.0}
+            if stats:
+                total_area = sum([item['sum'] for item in stats if int(item['class']) in [1, 2, 3]])
+                if total_area > 0:
+                    for item in stats:
+                        cls = int(item['class'])
+                        if cls in res:
+                            res[cls] = round((item['sum'] / total_area) * 100, 1)
+            return [res[1], res[2], res[3]]
+
+        return {
+            "ndvi": get_class_percentages(ndvi_classed),
+            "carbon": get_class_percentages(carbon_classed),
+            "moisture": get_class_percentages(moisture_classed)
+        }
+    except Exception as e:
+        print(f"Error calculate_stats: {e}")
+        return {"ndvi": [0, 0, 0], "carbon": [0, 0, 0], "moisture": [0, 0, 0]}
 
 def get_raster_layers(start_date: str, end_date: str, classes: List[int]):
     aoi = get_aoi()
@@ -106,7 +161,10 @@ def get_raster_layers(start_date: str, end_date: str, classes: List[int]):
     ndvi_classed_img = compute_ndvi_classed(ndvi, classes)
     moisture_img = compute_moisture(median_img)
     
-    return carbon_img, ndvi_classed_img, moisture_img
+    # Hitung data statistik lengkap dengan pembagian 3 kelas
+    stats_data = calculate_stats(ndvi, carbon_img, moisture_img, aoi)
+    
+    return carbon_img, ndvi_classed_img, moisture_img, stats_data
 
 # ==============================================================================
 # API ENDPOINT
@@ -118,7 +176,7 @@ def get_raster_tile(start: str, end: str, classes: str = "1,2,3"):
         return {"status": "error", "message": f"GEE Error: {error}"}
     try:
         class_list = [int(c) for c in classes.split(",") if c.strip().isdigit()]
-        carbon_img, ndvi_classed_img, moisture_img = get_raster_layers(start, end, class_list)
+        carbon_img, ndvi_classed_img, moisture_img, stats = get_raster_layers(start, end, class_list)
         
         vis_carbon = {
             "min": 0, "max": 120,
@@ -143,7 +201,8 @@ def get_raster_tile(start: str, end: str, classes: str = "1,2,3"):
             "status": "success",
             "carbon_url": map_id_carbon["tile_fetcher"].url_format,
             "ndvi_url": map_id_ndvi["tile_fetcher"].url_format,
-            "moisture_url": map_id_moisture["tile_fetcher"].url_format
+            "moisture_url": map_id_moisture["tile_fetcher"].url_format,
+            "stats": stats
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -191,7 +250,6 @@ def map_dashboard():
             .readout .label {{ font-size:9px; color:#6B7688; font-weight:600; text-transform: uppercase; }}
             .readout .value {{ font-family:'IBM Plex Mono', monospace; font-size:10px; margin-top:2px; color:#1B2430; word-break: break-all; }}
             
-            /* CHART CONTAINER */
             .chart-card {{ background:#FFFFFF; border:1px solid #E0E3DC; border-radius:8px; padding:10px; margin-top:8px; display: none; }}
             .chart-card-title {{ font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase; margin-bottom:6px; }}
 
@@ -201,7 +259,6 @@ def map_dashboard():
             }}
             .input-group {{ display:none; margin-top:6px; }}
             
-            /* LEGEND STYLES */
             .legend-container {{ margin-bottom: 4px; }}
             .legend-wrapper {{ display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }}
             .legend-bar-carbon {{ 
@@ -221,7 +278,6 @@ def map_dashboard():
             }}
             .legend-labels {{ display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #6B7688; }}
 
-            /* DESIGN SELEKSI LAYER DI SIDEBAR (SEAMLESS) */
             .sidebar-layer-card {{
                 background: #FFFFFF; border: 1px solid #E0E3DC; border-radius: 8px;
                 padding: 8px; margin-top: 8px;
@@ -232,7 +288,6 @@ def map_dashboard():
             .checkbox-item {{ display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #1B2430; }}
             .checkbox-item input[type="checkbox"] {{ width: 14px; height: 14px; cursor: pointer; accent-color: #0F6E56; }}
 
-            /* POPUP LAYER MELAYANG (DESKTOP) */
             .desktop-layer-control {{ position: relative; }}
             .layer-btn {{
                 background: #FFFFFF; border: 2px solid rgba(0,0,0,0.15); border-radius: 8px;
@@ -249,19 +304,15 @@ def map_dashboard():
             }}
             .layer-card-popup.show {{ display: block; }}
 
-            /* SECTION KONTROL LAYER KHUSUS HP (HIDDEN PADA DESKTOP) */
             .mobile-only-layer-card {{ display: none; }}
 
-            /* ==============================================================================
-               RESPONSIVE DESIGN COMPACT UNTUK HP (MOBILE)
-               ============================================================================== */
             @media screen and (max-width: 768px) {{
                 #map {{ position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; }}
                 
                 .sidebar {{
                     position: absolute !important; bottom: 10px !important; left: 10px !important; right: 10px !important; top: auto !important;
                     width: calc(100% - 20px) !important; height: auto !important; 
-                    max-height: 38vh !important; /* DITINGKATKAN KEKECILANNYA AGAR PETA BISA TERLIHAT LUAS */
+                    max-height: 38vh !important;
                     background: rgba(255, 255, 255, 0.95) !important; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
                     border: 1px solid rgba(224, 227, 220, 0.8) !important; border-radius: 16px !important;
                     box-shadow: 0px -4px 20px rgba(0, 0, 0, 0.15) !important; padding: 8px 12px 12px 12px !important;
@@ -275,10 +326,7 @@ def map_dashboard():
                 .navbtn {{ justify-content: center !important; padding: 6px 4px !important; font-size: 11px !important; text-align: center !important; border: 1px solid #E0E3DC !important; border-radius: 6px !important; background: #FFFFFF !important; }}
                 .navbtn.active {{ background: #1B2430 !important; color: #FFFFFF !important; border-color: #1B2430 !important; border-left: none !important; }}
                 
-                /* SEMBUNYIKAN LAYER CONTROL FLOATING PADA HP */
                 .desktop-layer-control {{ display: none !important; }}
-                
-                /* TAMPILKAN PANEL LAYER CONTROL DI DALAM SIDEBAR HP */
                 .mobile-only-layer-card {{ display: block !important; margin-top: 6px !important; padding: 6px 8px !important; }}
                 
                 .chart-card {{ padding: 6px !important; margin-top: 6px !important; }}
@@ -330,7 +378,7 @@ def map_dashboard():
             
             <!-- LEGENDA 1: STOK KARBON -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">1. Stok Karbon (Ton/Ha)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Stok Karbon (Ton/Ha)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>0 Min</span><span>60 Mid</span><span>120 Max</span></div>
                     <div class="legend-bar-carbon"></div>
@@ -339,7 +387,7 @@ def map_dashboard():
 
             <!-- LEGENDA 2: KELEMBABAN -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">2. Kelembaban (NDMI)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Kelembaban (NDMI)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>Kering</span><span>Sedang</span><span>Basah</span></div>
                     <div class="legend-bar-moisture"></div>
@@ -348,7 +396,7 @@ def map_dashboard():
 
             <!-- LEGENDA 3: KERAPATAN NDVI -->
             <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">3. Kerapatan Vegetasi (NDVI)</div>
+                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">Kerapatan Vegetasi (NDVI)</div>
                 <div class="legend-ndvi-grid">
                     <div class="legend-ndvi-box" style="background-color: #ffeb3b;">Rendah</div>
                     <div class="legend-ndvi-box" style="background-color: #8bc34a;">Sedang</div>
@@ -379,7 +427,7 @@ def map_dashboard():
                 <div class="value" id="dateRangeDisplay">Memproses mesin peta...</div>
             </div>
 
-            <!-- WIDGET GRAFIK SERAGAM -->
+            <!-- WIDGET GRAFIK DINAMIS -->
             <div class="chart-card" id="chartCard">
                 <div class="chart-card-title" id="chartTitle">Grafik Analisis</div>
                 <div style="position: relative; height: 110px;">
@@ -410,6 +458,7 @@ def map_dashboard():
         const ndviLayerGroup = L.layerGroup().addTo(map);
 
         let dynamicChart = null;
+        let latestStats = {{ ndvi: [0, 0, 0], carbon: [0, 0, 0], moisture: [0, 0, 0] }};
 
         function renderUniformChart(title, labels, data, colors) {{
             const card = document.getElementById("chartCard");
@@ -437,6 +486,8 @@ def map_dashboard():
                     plugins: {{ legend: {{ display: false }} }},
                     scales: {{
                         y: {{ 
+                            beginAtZero: true,
+                            max: 100,
                             ticks: {{ font: {{ size: 8, family: 'IBM Plex Mono' }} }},
                             grid: {{ color: '#F0F0F0' }}
                         }},
@@ -449,7 +500,6 @@ def map_dashboard():
             }});
         }}
 
-        // CONTROL STACK LAYER POPUP UNTUK DESKTOP
         const stackLayerControl = L.control({{ position: 'topright' }});
         stackLayerControl.onAdd = function(map) {{
             const div = L.DomUtil.create('div', 'desktop-layer-control');
@@ -532,15 +582,19 @@ def map_dashboard():
                 L.tileLayer(latestMoistureUrl, {{ opacity: 0.75, pane: 'moisturePane' }}).addTo(moistureLayerGroup);
             }}
 
-            if (isNdviActive) {{
-                let l = isLowChecked ? 25 : 0;
-                let m = isMedChecked ? 45 : 0;
-                let h = isHighChecked ? 30 : 0;
-                renderUniformChart('PROPORSI KERAPATAN NDVI (%)', ['Rendah', 'Sedang', 'Tinggi'], [l, m, h], ['#ffeb3b', '#8bc34a', '#2e7d32']);
-            }} else if (isCarbonChecked) {{
-                renderUniformChart('STOK KARBON (TON/HA)', ['0-30', '30-60', '60-90', '90-120'], [15, 35, 80, 40], ['#440154', '#3b528b', '#21918c', '#5ec962']);
+            // GRAFIK ADAPTIF BERDASARKAN LAYER PILIHAN PENGGUNA
+            if (isCarbonChecked) {{
+                let c = latestStats.carbon || [0, 0, 0];
+                renderUniformChart('PROPORSI STOK KARBON (%)', ['Rendah', 'Sedang', 'Tinggi'], c, ['#440154', '#21918c', '#fde725']);
             }} else if (isMoistureChecked) {{
-                renderUniformChart('TINGKAT KELEMBABAN (NDMI)', ['Kering', 'Sedang', 'Basah'], [20, 55, 25], ['#d7191c', '#fdae61', '#2c7bb6']);
+                let m = latestStats.moisture || [0, 0, 0];
+                renderUniformChart('PROPORSI KELEMBABAN (%)', ['Kering', 'Sedang', 'Basah'], m, ['#d7191c', '#ffffbf', '#2c7bb6']);
+            }} else if (isNdviActive) {{
+                let ndviArr = latestStats.ndvi || [0, 0, 0];
+                let l = isLowChecked ? ndviArr[0] : 0;
+                let m = isMedChecked ? ndviArr[1] : 0;
+                let h = isHighChecked ? ndviArr[2] : 0;
+                renderUniformChart('PROPORSI KERAPATAN NDVI (%)', ['Rendah', 'Sedang', 'Tinggi'], [l, m, h], ['#ffeb3b', '#8bc34a', '#2e7d32']);
             }} else {{
                 document.getElementById("chartCard").style.display = "none";
             }}
@@ -566,6 +620,7 @@ def map_dashboard():
             
             latestCarbonUrl = data.carbon_url;
             latestMoistureUrl = data.moisture_url;
+            latestStats = data.stats || {{ ndvi: [0, 0, 0], carbon: [0, 0, 0], moisture: [0, 0, 0] }};
 
             L.tileLayer(data.ndvi_url, {{ opacity: 0.75, pane: 'ndviPane' }}).addTo(ndviLayerGroup);
             
