@@ -377,46 +377,58 @@ def map_dashboard():
             .mobile-only-layer-card {{ display: none; }}
 
             /* ============================================================================== */
-            /* OPTIMASI LAYOUT KHUSUS MOBILE (MOBILE CHROME / SAMSUNG GALAXY) */
+            /* OPTIMASI SIDEBAR UNTUK TAMPILAN MOBILE (LEBIH RINGKAS & KOMPAK) */
             /* ============================================================================== */
             @media screen and (max-width: 768px) {{
                 #map {{ position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; }}
                 
                 .sidebar {{
                     position: absolute !important; 
-                    bottom: calc(16px + env(safe-area-inset-bottom)) !important; 
+                    bottom: calc(12px + env(safe-area-inset-bottom)) !important; 
                     left: 10px !important; 
                     right: 10px !important; 
                     top: auto !important;
                     width: calc(100% - 20px) !important; 
                     height: auto !important; 
-                    max-height: 55vh !important; 
+                    /* MAKSIMAL TINGGI DIKURANGI AGAR PETA LEBIH LUAS */
+                    max-height: 40vh !important; 
                     background: rgba(255, 255, 255, 0.96) !important; 
                     backdrop-filter: blur(12px); 
                     -webkit-backdrop-filter: blur(12px);
                     border: 1px solid rgba(224, 227, 220, 0.8) !important; 
-                    border-radius: 16px !important;
-                    box-shadow: 0px -6px 24px rgba(0, 0, 0, 0.18) !important; 
-                    /* PADDING BOTTOM DINAIKKAN MENJADI 90PX UNTUK RUANG SCROLL SANGAT LEGA */
-                    padding: 10px 14px 90px 14px !important; 
+                    border-radius: 14px !important;
+                    box-shadow: 0px -4px 18px rgba(0, 0, 0, 0.15) !important; 
+                    /* PADDING DIPERKECIL UNTUK PROPORSI YANG PAS */
+                    padding: 8px 10px 45px 10px !important; 
                     box-sizing: border-box !important;
                     z-index: 9999 !important; 
                     overflow-y: auto !important; 
                     -webkit-overflow-scrolling: touch;
                 }}
-                .drag-handle {{ display: block !important; width: 36px; height: 4px; background: #CBD5E1; border-radius: 2px; margin: 0 auto 8px auto; flex-shrink: 0; }}
+                .drag-handle {{ display: block !important; width: 32px; height: 3px; background: #CBD5E1; border-radius: 2px; margin: 0 auto 6px auto; flex-shrink: 0; }}
                 .coords, .divider {{ display: none !important; }}
-                .title {{ font-size: 14px !important; margin-top: 0px; margin-bottom: 4px; font-weight:600; line-height: 1.2; }}
+                .title {{ font-size: 13px !important; margin-top: 0px; margin-bottom: 2px; font-weight:600; line-height: 1.1; }}
                 
-                .btn-group {{ flex-direction: row !important; gap: 4px !important; width: 100% !important; margin-top: 4px; }}
-                .navbtn {{ justify-content: center !important; padding: 6px 4px !important; font-size: 11px !important; text-align: center !important; border: 1px solid #E0E3DC !important; border-radius: 6px !important; background: #FFFFFF !important; }}
+                .btn-group {{ flex-direction: row !important; gap: 4px !important; width: 100% !important; margin-top: 2px; }}
+                .navbtn {{ justify-content: center !important; padding: 4px 2px !important; font-size: 10px !important; text-align: center !important; border: 1px solid #E0E3DC !important; border-radius: 5px !important; background: #FFFFFF !important; }}
                 .navbtn.active {{ background: #1B2430 !important; color: #FFFFFF !important; border-color: #1B2430 !important; border-left: none !important; }}
                 
                 .desktop-layer-control {{ display: none !important; }}
-                .mobile-only-layer-card {{ display: block !important; margin-top: 6px !important; padding: 6px 8px !important; }}
-                
-                .chart-card {{ padding: 8px !important; margin-top: 8px !important; }}
-                .chart-card div[style*="height"] {{ height: 120px !important; }}
+                .mobile-only-layer-card {{ display: block !important; margin-top: 4px !important; padding: 6px 8px !important; }}
+                .sidebar-layer-card h4 {{ font-size: 8px !important; margin-bottom: 4px !important; }}
+                .checkbox-item {{ font-size: 10px !important; gap: 4px !important; }}
+                .checkbox-item input[type="checkbox"] {{ width: 12px !important; height: 12px !important; }}
+
+                .legend-container {{ margin-top: 4px !important; }}
+                .legend-labels {{ font-size: 8px !important; }}
+                .legend-ndvi-box {{ font-size: 7.5px !important; height: 12px !important; }}
+
+                .readout {{ padding: 6px 8px !important; margin-top: 4px !important; }}
+                .readout .label {{ font-size: 8px !important; }}
+                .readout .value {{ font-size: 9px !important; }}
+
+                .chart-card {{ padding: 6px !important; margin-top: 6px !important; }}
+                .chart-card div[style*="height"] {{ height: 100px !important; }}
             }}
         </style>
     </head>
@@ -446,7 +458,7 @@ def map_dashboard():
                         <span>Layer Kelembaban (NDMI)</span>
                     </label>
                     <div style="height:1px; background:#E0E3DC; margin: 2px 0;"></div>
-                    <span style="font-size:9px; font-weight:600; color:#6B7688;">KERAPATAN NDVI:</span>
+                    <span style="font-size:8px; font-weight:600; color:#6B7688;">KERAPATAN NDVI:</span>
                     <label class="checkbox-item">
                         <input type="checkbox" class="chk-low" value="1" checked onchange="syncAndFetch('low', this.checked)">
                         <span>Kerapatan Rendah</span>
@@ -463,8 +475,8 @@ def map_dashboard():
             </div>
             
             <!-- LEGENDA 1: STOK KARBON -->
-            <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">1. Stok Karbon (Ton/Ha)</div>
+            <div class="legend-container" style="margin-top: 4px;">
+                <div style="font-size:8px; font-weight:600; color:#6B7688; text-transform:uppercase;">1. Stok Karbon (Ton/Ha)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>0 Min</span><span>60 Mid</span><span>120 Max</span></div>
                     <div class="legend-bar-carbon"></div>
@@ -472,8 +484,8 @@ def map_dashboard():
             </div>
 
             <!-- LEGENDA 2: KELEMBABAN -->
-            <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">2. Kelembaban (NDMI)</div>
+            <div class="legend-container" style="margin-top: 4px;">
+                <div style="font-size:8px; font-weight:600; color:#6B7688; text-transform:uppercase;">2. Kelembaban (NDMI)</div>
                 <div class="legend-wrapper">
                     <div class="legend-labels"><span>Kering</span><span>Sedang</span><span>Basah</span></div>
                     <div class="legend-bar-moisture"></div>
@@ -481,8 +493,8 @@ def map_dashboard():
             </div>
 
             <!-- LEGENDA 3: KERAPATAN NDVI -->
-            <div class="legend-container" style="margin-top: 6px;">
-                <div style="font-size:9px; font-weight:600; color:#6B7688; text-transform:uppercase;">3. Kerapatan Vegetasi (NDVI)</div>
+            <div class="legend-container" style="margin-top: 4px;">
+                <div style="font-size:8px; font-weight:600; color:#6B7688; text-transform:uppercase;">3. Kerapatan Vegetasi (NDVI)</div>
                 <div class="legend-ndvi-grid">
                     <div class="legend-ndvi-box" style="background-color: #ffeb3b;">Rendah</div>
                     <div class="legend-ndvi-box" style="background-color: #8bc34a;">Sedang</div>
@@ -516,7 +528,7 @@ def map_dashboard():
             <!-- WIDGET GRAFIK DINAMIS -->
             <div class="chart-card" id="chartCard">
                 <div class="chart-card-title" id="chartTitle">Grafik Analisis</div>
-                <div style="position: relative; height: 120px;">
+                <div style="position: relative; height: 100px;">
                     <canvas id="dynamicChart"></canvas>
                 </div>
             </div>
