@@ -307,7 +307,7 @@ def map_dashboard():
                 
                 .sidebar {{
                     position: absolute !important; 
-                    bottom: 12px !important; 
+                    bottom: 30px !important; 
                     left: 10px !important; 
                     right: 10px !important; 
                     top: auto !important;
