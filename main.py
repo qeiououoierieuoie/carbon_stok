@@ -307,13 +307,13 @@ def map_dashboard():
                 
                 .sidebar {{
                     position: absolute !important; 
-                    bottom: 50px !important; 
+                    bottom: 12px !important; 
                     left: 10px !important; 
                     right: 10px !important; 
                     top: auto !important;
                     width: calc(100% - 20px) !important; 
                     height: auto !important; 
-                    max-height: 65vh !important; /* DITINGKATKAN AGAR LEBIH TINGGI DI HP (DARI 38vh KE 65vh) */
+                    max-height: 38vh !important; /* DITINGKATKAN AGAR LEBIH TINGGI DI HP (DARI 38vh KE 65vh) */
                     background: rgba(255, 255, 255, 0.96) !important; 
                     backdrop-filter: blur(12px); 
                     -webkit-backdrop-filter: blur(12px);
