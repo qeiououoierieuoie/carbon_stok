@@ -296,7 +296,7 @@ def map_dashboard():
                 <span style="font-size:8px; font-weight:600; color:#3B6D11;">GEE CLOUD CONNECTED</span>
             </div>
             <div class="title">Carbon & Moisture Dashboard</div>
-            <div class="coords">Kota Padang [100.36, -0.92]</div>
+           
             <div class="divider"></div>
 
             <!-- PANEL PILIH LAYER KHUSUS HP -->
