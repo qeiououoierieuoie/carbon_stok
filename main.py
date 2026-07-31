@@ -543,7 +543,7 @@ def map_dashboard():
             "Google Satellite": L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={{x}}&y={{y}}&z={{z}}', {{ attribution: '© Google' }})
         }};
 
-        const map = L.map('map', {{ center: [-0.9242544, 100.3624642], zoom: 11, layers: [baseMaps["OpenStreetMap"]] }});
+        const map = L.map('map', {{ center: [-0.9242544, 100.3624642], zoom: 10, layers: [baseMaps["OpenStreetMap"]] }});
         
         map.zoomControl.setPosition('topleft');
         
